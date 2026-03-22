@@ -334,6 +334,16 @@ label { display: block; font-size: 12px; font-weight: 600; color: var(--gray-700
 .form-control[readonly] { background: var(--gray-50); color: var(--gray-600); }
 select.form-control { cursor: pointer; }
 
+/* Ensure number inputs always show text visibly */
+input[type="number"].form-control,
+input[type="text"].form-control,
+input[type="email"].form-control,
+input[type="password"].form-control,
+input[type="date"].form-control {
+    color: var(--gray-800) !important;
+}
+input[type="number"] { color: var(--gray-800); }
+
 .barcode-input {
     border-color: var(--primary) !important;
     background: var(--primary-light) !important;

@@ -163,11 +163,11 @@ function addRow(data = {}) {
         <td><input type="text" name="items[${idx}][item_name]" id="name_${idx}" class="form-control" readonly placeholder="Auto-fill"></td>
         <td><input type="text" name="items[${idx}][category]" id="cat_${idx}" class="form-control" readonly placeholder="Auto-fill"></td>
         <td><input type="number" name="items[${idx}][qty]" id="qty_${idx}" class="form-control" min="1" value="1" 
-            oninput="calcRow(${idx})" style="text-align:center;"></td>
+            oninput="calcRow(${idx})" style="text-align:center;color:#1e293b;background:#fff;font-weight:600;width:80px;"></td>
         <td><input type="number" name="items[${idx}][unit_cost]" id="cost_${idx}" class="form-control" step="0.01" min="0" value="0"
-            oninput="calcRow(${idx})"></td>
-        <td><input type="text" id="total_${idx}" class="form-control" readonly value="₱0.00" style="font-weight:700;color:var(--primary)"></td>
-        <td><input type="text" name="items[${idx}][notes]" class="form-control" placeholder="Supplier..."></td>
+            oninput="calcRow(${idx})" style="color:#1e293b;background:#fff;"></td>
+        <td><input type="text" id="total_${idx}" class="form-control" readonly value="₱0.00" style="font-weight:700;color:#6366f1;background:#f1f5f9;"></td>
+        <td><input type="text" name="items[${idx}][notes]" class="form-control" placeholder="Supplier..." style="color:#1e293b;"></td>
         <td><button type="button" class="btn btn-sm btn-danger btn-icon" onclick="removeRow(${idx})"><i class="fas fa-times"></i></button></td>
     `;
     document.getElementById('stockBody').appendChild(row);

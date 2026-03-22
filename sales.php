@@ -12,24 +12,21 @@ $user = currentUser();
 // Handle sale submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    
+
     if ($action === 'sale') {
         $items = $_POST['items'] ?? [];
         $invNo = $_POST['invoice_no'] ?? generateReferenceNo('INV', 'sales', 'invoice_no');
-        $date = $_POST['date'] ?? date('Y-m-d');
-        
+        $date  = $_POST['date'] ?? date('Y-m-d');
         foreach ($items as $row) {
             if (empty($row['barcode']) || empty($row['qty'])) continue;
-            $stmt = $pdo->prepare("INSERT INTO sales (invoice_no, date, barcode, item_name, category, qty_sold, selling_price, unit_cost, cashier_id) VALUES (?,?,?,?,?,?,?,?,?)");
-            $stmt->execute([
-                $invNo, $date, $row['barcode'], $row['item_name'], $row['category'],
-                intval($row['qty']), floatval($row['selling_price']), floatval($row['unit_cost']), $user['id']
-            ]);
+            $stmt = $pdo->prepare("INSERT INTO sales (invoice_no,date,barcode,item_name,category,qty_sold,selling_price,unit_cost,cashier_id) VALUES (?,?,?,?,?,?,?,?,?)");
+            $stmt->execute([$invNo, $date, $row['barcode'], $row['item_name'], $row['category'],
+                intval($row['qty']), floatval($row['selling_price']), floatval($row['unit_cost']), $user['id']]);
         }
         header('Location: ' . BASE_URL . '/sales.php?success=Sale+recorded&inv=' . urlencode($invNo));
         exit();
     }
-    
+
     if ($action === 'delete' && currentRole() === 'admin') {
         $pdo->prepare("DELETE FROM sales WHERE id=?")->execute([intval($_POST['id'])]);
         header('Location: ' . BASE_URL . '/sales.php?success=Record+deleted');
@@ -37,56 +34,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// ── AJAX: return receipt HTML for popup printing ──────────────────────────
+if (isset($_GET['receipt_ajax'])) {
+    $invNo = trim($_GET['receipt_ajax']);
+    $stmt  = $pdo->prepare("SELECT s.*, u.name AS cashier_name FROM sales s LEFT JOIN users u ON s.cashier_id = u.id WHERE s.invoice_no = ? ORDER BY s.id");
+    $stmt->execute([$invNo]);
+    $rows = $stmt->fetchAll();
+    if (!$rows) { echo '<p>Invoice not found.</p>'; exit(); }
+    $storeName = $pdo->query("SELECT setting_value FROM settings WHERE setting_key='store_name'")->fetchColumn() ?: 'My Store';
+    $total = array_sum(array_column($rows, 'total_sales'));
+    $profit = array_sum(array_column($rows, 'profit'));
+    ob_start(); ?>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Receipt <?= htmlspecialchars($invNo) ?></title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Courier New',Courier,monospace; font-size:12px; width:300px; padding:16px; color:#000; background:#fff; }
+  h2 { text-align:center; font-size:16px; margin-bottom:2px; }
+  .center { text-align:center; }
+  .divider { border-top:1px dashed #000; margin:8px 0; }
+  .row { display:flex; justify-content:space-between; margin-bottom:3px; }
+  .item-name { font-weight:bold; margin-bottom:1px; }
+  .item-detail { color:#555; }
+  .total-row { display:flex; justify-content:space-between; font-size:15px; font-weight:900; margin-top:6px; }
+  .footer { text-align:center; margin-top:10px; font-size:11px; color:#555; }
+  @media print {
+    body { width:80mm; }
+    @page { margin:4mm; size:80mm auto; }
+  }
+</style>
+</head>
+<body>
+  <h2><?= htmlspecialchars($storeName) ?></h2>
+  <div class="center" style="font-size:10px;margin-bottom:6px;">Barcode Inventory System</div>
+  <div class="divider"></div>
+  <div class="row"><span>Invoice:</span><strong><?= htmlspecialchars($invNo) ?></strong></div>
+  <div class="row"><span>Date:</span><span><?= date('M d, Y H:i', strtotime($rows[0]['created_at'])) ?></span></div>
+  <div class="row"><span>Cashier:</span><span><?= htmlspecialchars($rows[0]['cashier_name'] ?? 'N/A') ?></span></div>
+  <div class="divider"></div>
+  <?php foreach ($rows as $r): ?>
+  <div class="item-name"><?= htmlspecialchars($r['item_name']) ?></div>
+  <div class="row item-detail">
+    <span><?= $r['qty_sold'] ?> x ₱<?= number_format($r['selling_price'], 2) ?></span>
+    <span>₱<?= number_format($r['total_sales'], 2) ?></span>
+  </div>
+  <?php endforeach; ?>
+  <div class="divider"></div>
+  <div class="row"><span>Items:</span><span><?= array_sum(array_column($rows, 'qty_sold')) ?></span></div>
+  <div class="total-row"><span>TOTAL</span><span>₱<?= number_format($total, 2) ?></span></div>
+  <div class="divider"></div>
+  <div class="footer">Thank you for your purchase!<br><?= date('Y') ?> <?= htmlspecialchars($storeName) ?></div>
+</body>
+</html>
+    <?php
+    echo ob_get_clean();
+    exit();
+}
+
 // Sales history
 $salesHistory = $pdo->query("SELECT s.*, u.name AS cashier_name FROM sales s LEFT JOIN users u ON s.cashier_id = u.id ORDER BY s.date DESC, s.id DESC LIMIT 100")->fetchAll();
 $todayInv = generateReferenceNo('INV', 'sales', 'invoice_no');
 
-// Invoice to print
-$printInvoice = null;
-if (isset($_GET['inv'])) {
-    $stmt = $pdo->prepare("SELECT s.*, u.name AS cashier_name FROM sales s LEFT JOIN users u ON s.cashier_id = u.id WHERE s.invoice_no = ?");
-    $stmt->execute([trim($_GET['inv'])]);
-    $printInvoice = $stmt->fetchAll();
-}
-
 include 'includes/header.php';
 ?>
 
-<?php if ($printInvoice): ?>
-<!-- Invoice Print View -->
-<div class="card no-print" style="max-width:400px;">
-    <div class="receipt" id="receiptArea">
-        <h2>🏪 MY STORE</h2>
-        <div style="text-align:center;font-size:11px;margin-bottom:8px;">Barcode Inventory System</div>
-        <div class="receipt-divider"></div>
-        <div class="receipt-row"><span>Invoice:</span><strong><?= sanitize($printInvoice[0]['invoice_no']) ?></strong></div>
-        <div class="receipt-row"><span>Date:</span><span><?= formatDate($printInvoice[0]['date']) ?></span></div>
-        <div class="receipt-row"><span>Cashier:</span><span><?= sanitize($printInvoice[0]['cashier_name'] ?? '-') ?></span></div>
-        <div class="receipt-divider"></div>
-        <?php $total = 0; foreach ($printInvoice as $si): $total += $si['total_sales']; ?>
-        <div style="margin-bottom:6px;">
-            <div><?= sanitize($si['item_name']) ?></div>
-            <div class="receipt-row" style="color:#666;">
-                <span><?= $si['qty_sold'] ?> x <?= formatCurrency($si['selling_price']) ?></span>
-                <span><?= formatCurrency($si['total_sales']) ?></span>
-            </div>
-        </div>
-        <?php endforeach; ?>
-        <div class="receipt-divider"></div>
-        <div class="receipt-row" style="font-size:16px;font-weight:800;">
-            <span>TOTAL</span><span><?= formatCurrency($total) ?></span>
-        </div>
-        <div class="receipt-divider"></div>
-        <div style="text-align:center;font-size:11px;">Thank you for your purchase!</div>
-    </div>
-    <div style="display:flex;gap:10px;margin-top:16px;">
-        <button class="btn btn-primary" onclick="window.print()"><i class="fas fa-print"></i> Print Receipt</button>
-        <a href="sales.php" class="btn btn-outline">New Sale</a>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- POS Form -->
+<!-- POS Layout -->
 <div class="pos-grid">
     <div>
         <div class="card">
@@ -104,10 +119,10 @@ include 'includes/header.php';
                     <i class="fas fa-barcode" style="font-size:20px;"></i> SCAN BARCODE — Add to Cart
                 </label>
                 <div style="display:flex;gap:10px;margin-top:8px;">
-                    <input type="text" id="quickScan" class="form-control barcode-input" 
+                    <input type="text" id="quickScan" class="form-control barcode-input"
                         placeholder="Scan barcode here..." style="font-size:16px;" autocomplete="off">
-                    <input type="number" id="quickQty" class="form-control" min="1" value="1" 
-                        style="width:80px;text-align:center;" placeholder="Qty">
+                    <input type="number" id="quickQty" class="form-control" min="1" value="1"
+                        style="width:80px;text-align:center;color:#1e293b;background:#fff;font-weight:600;" placeholder="Qty">
                     <button type="button" class="btn btn-primary" onclick="addFromScan()">
                         <i class="fas fa-plus"></i> Add
                     </button>
@@ -117,7 +132,7 @@ include 'includes/header.php';
 
             <form method="POST" id="saleForm">
                 <input type="hidden" name="action" value="sale">
-                <input type="hidden" name="invoice_no" value="<?= sanitize($todayInv) ?>">
+                <input type="hidden" name="invoice_no" id="currentInvNo" value="<?= sanitize($todayInv) ?>">
                 <input type="hidden" name="date" value="<?= date('Y-m-d') ?>">
 
                 <div class="table-wrapper">
@@ -134,7 +149,7 @@ include 'includes/header.php';
         </div>
     </div>
 
-    <!-- POS Summary -->
+    <!-- POS Summary Panel -->
     <div>
         <div class="pos-summary" id="posSummary">
             <div style="margin-bottom:20px;">
@@ -152,15 +167,14 @@ include 'includes/header.php';
                 <button type="button" class="btn btn-success btn-lg" onclick="submitSale()" style="justify-content:center;font-size:16px;">
                     <i class="fas fa-check-circle"></i> Complete Sale
                 </button>
-                <button type="button" class="btn btn-outline" onclick="clearCart()" style="justify-content:center;background:rgba(255,255,255,.05);color:var(--gray-300);border-color:rgba(255,255,255,.1);">
+                <button type="button" id="printReceiptBtn" class="btn btn-lg" onclick="printLastReceipt()"
+                    style="display:none;justify-content:center;background:#3b82f6;color:#fff;font-size:15px;">
+                    <i class="fas fa-print"></i> Print Receipt
+                </button>
+                <button type="button" class="btn btn-outline" onclick="clearCart()"
+                    style="justify-content:center;background:rgba(255,255,255,.05);color:var(--gray-300);border-color:rgba(255,255,255,.1);">
                     <i class="fas fa-trash"></i> Clear Cart
                 </button>
-            </div>
-
-            <div id="receiptBtns" style="display:none;margin-top:12px;">
-                <a id="printLink" href="#" class="btn btn-outline" style="width:100%;justify-content:center;background:rgba(255,255,255,.05);color:var(--gray-300);border-color:rgba(255,255,255,.1);">
-                    <i class="fas fa-print"></i> Print Last Receipt
-                </a>
             </div>
         </div>
     </div>
@@ -178,7 +192,7 @@ include 'includes/header.php';
     <div class="table-wrapper">
         <table>
             <thead>
-                <tr><th>Date</th><th>Invoice</th><th>Barcode</th><th>Item</th><th>Qty</th><th>Price</th><th>Total Sales</th><th>Profit</th><th>Cashier</th><?php if (currentRole()==='admin'): ?><th></th><?php endif; ?></tr>
+                <tr><th>Date</th><th>Invoice</th><th>Barcode</th><th>Item</th><th>Qty</th><th>Price</th><th>Total Sales</th><th>Profit</th><th>Cashier</th><th></th></tr>
             </thead>
             <tbody>
             <?php foreach ($salesHistory as $r): ?>
@@ -192,16 +206,18 @@ include 'includes/header.php';
                 <td><strong><?= formatCurrency($r['total_sales']) ?></strong></td>
                 <td style="color:var(--success)"><strong><?= formatCurrency($r['profit']) ?></strong></td>
                 <td><?= sanitize($r['cashier_name'] ?? '-') ?></td>
-                <?php if (currentRole()==='admin'): ?>
-                <td>
-                    <a href="?inv=<?= urlencode($r['invoice_no']) ?>" class="btn btn-sm btn-outline btn-icon"><i class="fas fa-receipt"></i></a>
+                <td style="display:flex;gap:4px;">
+                    <button class="btn btn-sm btn-outline btn-icon" onclick="printReceiptByInv('<?= sanitize($r['invoice_no']) ?>')" title="Print Receipt">
+                        <i class="fas fa-receipt"></i>
+                    </button>
+                    <?php if (currentRole()==='admin'): ?>
                     <form method="POST" style="display:inline">
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="id" value="<?= $r['id'] ?>">
                         <button type="submit" class="btn btn-sm btn-danger btn-icon" data-confirm="Delete this sale?"><i class="fas fa-trash"></i></button>
                     </form>
+                    <?php endif; ?>
                 </td>
-                <?php endif; ?>
             </tr>
             <?php endforeach; ?>
             </tbody>
@@ -212,9 +228,10 @@ include 'includes/header.php';
 <script>
 let cart = {};
 let cartIdx = 0;
+let lastInvoiceNo = null;
 
 const quickScan = document.getElementById('quickScan');
-const feedback = document.getElementById('scanFeedback');
+const feedback  = document.getElementById('scanFeedback');
 
 // Auto-focus scan input
 quickScan.focus();
@@ -239,17 +256,13 @@ quickScan.addEventListener('input', function () {
 });
 
 quickScan.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        addFromScan();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); addFromScan(); }
 });
 
 function addFromScan() {
     const barcode = quickScan.value.trim();
     const qty = parseInt(document.getElementById('quickQty').value) || 1;
     if (!barcode) return;
-    
     lookupBarcode(barcode, function (res) {
         if (res && res.found) {
             const item = res.item;
@@ -269,7 +282,6 @@ function addFromScan() {
 }
 
 function addToCart(item, qty) {
-    // Check if already in cart
     if (cart[item.barcode]) {
         cart[item.barcode].qty += qty;
         updateCartRow(item.barcode);
@@ -279,15 +291,13 @@ function addToCart(item, qty) {
         renderCartRow(item.barcode);
     }
     updateTotals();
-    
-    // Remove empty state row
     const emptyRow = document.getElementById('emptyRow');
     if (emptyRow) emptyRow.remove();
 }
 
 function renderCartRow(barcode) {
     const item = cart[barcode];
-    const idx = item.idx;
+    const idx  = item.idx;
     const tbody = document.getElementById('cartBody');
     const row = document.createElement('tr');
     row.id = 'cartrow_' + barcode.replace(/\D/g,'');
@@ -301,9 +311,9 @@ function renderCartRow(barcode) {
         <td><strong>${item.item_name}</strong><br><small style="color:var(--gray-400)">${item.barcode}</small></td>
         <td><span class="badge badge-info">${item.category}</span></td>
         <td>
-            <input type="number" name="items[${idx}][qty]" id="qty_${idx}" 
+            <input type="number" name="items[${idx}][qty]" id="qty_${idx}"
                 value="${item.qty}" min="1" max="${item.current_stock}"
-                class="form-control" style="width:60px;text-align:center;"
+                class="form-control" style="width:64px;text-align:center;color:#1e293b;background:#fff;font-weight:700;"
                 onchange="updateQty('${barcode}', this.value)">
         </td>
         <td>${formatCurrency(item.selling_price)}</td>
@@ -316,7 +326,7 @@ function renderCartRow(barcode) {
 
 function updateCartRow(barcode) {
     const item = cart[barcode];
-    const idx = item.idx;
+    const idx  = item.idx;
     document.getElementById('qty_' + idx).value = item.qty;
     document.getElementById('rowTotal_' + idx).innerHTML = '<strong>' + formatCurrency(item.qty * item.selling_price) + '</strong>';
     document.getElementById('rowProfit_' + idx).textContent = formatCurrency(item.qty * (item.selling_price - item.unit_cost));
@@ -339,8 +349,7 @@ function removeFromCart(barcode) {
         updateTotals();
     }
     if (Object.keys(cart).length === 0) {
-        const tbody = document.getElementById('cartBody');
-        tbody.innerHTML = '<tr id="emptyRow"><td colspan="8"><div class="empty-state"><i class="fas fa-barcode"></i><p>Scan items to add to cart</p></div></td></tr>';
+        document.getElementById('cartBody').innerHTML = '<tr id="emptyRow"><td colspan="8"><div class="empty-state"><i class="fas fa-barcode"></i><p>Scan items to add to cart</p></div></td></tr>';
     }
 }
 
@@ -349,13 +358,13 @@ function updateTotals() {
     for (const bc in cart) {
         const item = cart[bc];
         subtotal += item.qty * item.selling_price;
-        profit += item.qty * (item.selling_price - item.unit_cost);
-        count += item.qty;
+        profit   += item.qty * (item.selling_price - item.unit_cost);
+        count    += item.qty;
     }
-    document.getElementById('subtotal').textContent = formatCurrency(subtotal);
+    document.getElementById('subtotal').textContent      = formatCurrency(subtotal);
     document.getElementById('grandTotalPos').textContent = formatCurrency(subtotal);
-    document.getElementById('totalProfit').textContent = formatCurrency(profit);
-    document.getElementById('itemCount').textContent = count + ' item(s)';
+    document.getElementById('totalProfit').textContent   = formatCurrency(profit);
+    document.getElementById('itemCount').textContent     = count + ' item(s)';
 }
 
 function submitSale() {
@@ -377,10 +386,36 @@ function clearCart() {
     }
 }
 
-// Show print button if returning from a sale
+// ── Receipt popup print ───────────────────────────────────────────────────
+function printReceiptByInv(invNo) {
+    const url = BASE_URL + 'sales.php?receipt_ajax=' + encodeURIComponent(invNo);
+    fetch(url)
+        .then(r => r.text())
+        .then(html => {
+            const win = window.open('', '_blank', 'width=360,height=600,scrollbars=no,toolbar=no,menubar=no');
+            win.document.write(html);
+            win.document.close();
+            win.focus();
+            // Wait for content to render then print
+            win.onload = function() { win.print(); };
+            // Fallback if onload already fired
+            setTimeout(function() {
+                try { win.print(); } catch(e) {}
+            }, 600);
+        })
+        .catch(() => alert('Could not load receipt. Please try again.'));
+}
+
+function printLastReceipt() {
+    if (lastInvoiceNo) {
+        printReceiptByInv(lastInvoiceNo);
+    }
+}
+
+// After successful sale — show print button and store invoice no
 <?php if (isset($_GET['inv'])): ?>
-document.getElementById('receiptBtns').style.display = 'block';
-document.getElementById('printLink').href = '?inv=<?= urlencode($_GET['inv']) ?>';
+lastInvoiceNo = '<?= addslashes($_GET['inv']) ?>';
+document.getElementById('printReceiptBtn').style.display = 'flex';
 <?php endif; ?>
 </script>
 
