@@ -1,0 +1,28 @@
+Options -Indexes
+Options -FollowSymLinks
+
+# Protect config files
+<Files "database.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# Protect includes directory
+<FilesMatch "\.(php)$">
+    # Allow PHP files in root, block direct access to includes
+</FilesMatch>
+
+# PHP settings
+<IfModule mod_php.c>
+    php_flag display_errors Off
+    php_flag log_errors On
+    php_value session.cookie_httponly 1
+    php_value session.use_strict_mode 1
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
