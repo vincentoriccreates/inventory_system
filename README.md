@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="Barcode Inventory Management System.png" alt="Inventory Thumbnail" width="600">
+  <img src="[Barcode Inventory Management System.png](https://raw.githubusercontent.com/vincentoriccreates/inventory_system/refs/heads/main/images/Barcode%20Inventory%20Management%20System.png)" alt="Inventory Thumbnail" width="600">
 </p>
 
 # 📦 InventoryPro — Barcode Inventory Management System
