@@ -1,13 +1,15 @@
 
 <p align="center">
-  <img src="images/Barcode Inventory Management System.png" alt="Project Thumbnail" width="600">
+  <img 
+    src="https://raw.githubusercontent.com/vincentoriccreates/inventory_system/main/images/Barcode%20Inventory%20Management%20System.png" 
+    alt="InventoryPro Project Thumbnail" 
+    width="100%"
+  >
 </p>
 
 # 📦 InventoryPro — Barcode Inventory Management System
 
 A complete, production-ready PHP + MySQL Inventory Management System with POS barcode scanning, role-based access control, real-time inventory tracking, and sales analytics.
-
----
 
 ## 🚀 QUICK START
 
